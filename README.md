@@ -4,8 +4,8 @@
 
 | Skill | What it does |
 |---|---|
-| [nb-load-test-creator](nb-load-test-creator/) | Turns an OpenAPI/Swagger spec into a runnable C# NBomber load test that builds and passes a one-request check before you run the real load. |
-| [nb-http](nb-http/) | Writes and reviews NBomber HTTP scenarios, and checks them for common mistakes: workstation GC, a hand-made `HttpClient`, unnecessary `IsError` checks and hand-built JSON bodies. |
+| [nb-load-test-creator](skills/nb-load-test-creator/) | Turns an OpenAPI/Swagger spec into a runnable C# NBomber load test that builds and passes a one-request check before you run the real load. |
+| [nb-http](skills/nb-http/) | Writes and reviews NBomber HTTP scenarios, and checks them for common mistakes: workstation GC, a hand-made `HttpClient`, unnecessary `IsError` checks and hand-built JSON bodies. |
 
 ## nb-load-test-creator
 
@@ -90,7 +90,7 @@ macOS / Linux (bash):
 ```bash
 git clone https://github.com/OlenaKostash/nbomber-skills.git
 mkdir -p ~/.claude/skills
-cp -r nbomber-skills/nb-load-test-creator nbomber-skills/nb-http ~/.claude/skills/
+cp -r nbomber-skills/skills/nb-load-test-creator nbomber-skills/skills/nb-http ~/.claude/skills/
 rm -rf nbomber-skills
 ```
 
@@ -99,7 +99,7 @@ Windows (PowerShell):
 ```powershell
 git clone https://github.com/OlenaKostash/nbomber-skills.git
 New-Item -ItemType Directory -Force "$HOME\.claude\skills" | Out-Null
-Copy-Item -Recurse nbomber-skills\nb-load-test-creator, nbomber-skills\nb-http "$HOME\.claude\skills\"
+Copy-Item -Recurse nbomber-skills\skills\nb-load-test-creator, nbomber-skills\skills\nb-http "$HOME\.claude\skills\"
 Remove-Item -Recurse -Force nbomber-skills
 ```
 
@@ -112,7 +112,7 @@ macOS / Linux (bash):
 ```bash
 git clone https://github.com/OlenaKostash/nbomber-skills.git
 mkdir -p .claude/skills
-cp -r nbomber-skills/nb-load-test-creator nbomber-skills/nb-http .claude/skills/
+cp -r nbomber-skills/skills/nb-load-test-creator nbomber-skills/skills/nb-http .claude/skills/
 rm -rf nbomber-skills
 ```
 
@@ -121,7 +121,7 @@ Windows (PowerShell):
 ```powershell
 git clone https://github.com/OlenaKostash/nbomber-skills.git
 New-Item -ItemType Directory -Force ".claude\skills" | Out-Null
-Copy-Item -Recurse nbomber-skills\nb-load-test-creator, nbomber-skills\nb-http ".claude\skills\"
+Copy-Item -Recurse nbomber-skills\skills\nb-load-test-creator, nbomber-skills\skills\nb-http ".claude\skills\"
 Remove-Item -Recurse -Force nbomber-skills
 ```
 
@@ -155,14 +155,15 @@ You can also start a skill directly with `/nb-load-test-creator` or `/nb-http`.
 nbomber-skills/
 ├── README.md                     this file
 ├── LICENSE
-├── nb-load-test-creator/         the load test creator skill (copy this folder to install)
-│   ├── SKILL.md                  workflow Claude follows
-│   └── references/
-│       ├── nbomber.md            NBomber code patterns
-│       ├── openapi.md            reading OpenAPI 3.x and Swagger 2.0 specs
-│       └── troubleshooting.md    what to do when the one-request check fails
-└── nb-http/                      the HTTP skill (copy this folder to install)
-    └── SKILL.md                  checks for NBomber HTTP scenarios
+└── skills/
+    ├── nb-load-test-creator/     the load test creator skill (copy this folder to install)
+    │   ├── SKILL.md              workflow Claude follows
+    │   └── references/
+    │       ├── nbomber.md        NBomber code patterns
+    │       ├── openapi.md        reading OpenAPI 3.x and Swagger 2.0 specs
+    │       └── troubleshooting.md  what to do when the one-request check fails
+    └── nb-http/                  the HTTP skill (copy this folder to install)
+        └── SKILL.md              checks for NBomber HTTP scenarios
 ```
 
 ## License
