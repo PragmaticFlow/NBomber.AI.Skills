@@ -31,13 +31,34 @@ Use NBomber.Http 7.0.0 or later. This skill and its checks are written for the 7
 Earlier versions behave differently in ways the checks rely on:
 
 - **Sending requests.** Version 7.0.0 adds the extension methods `httpClient.SendRequest(request)` and `httpClient.SendRequest<T>(request)`. The static `Http.Send(client, request)` and `Http.Send<T>(...)` methods still work, but they are obsolete and cause compiler warning CS0618 (see check 8). Earlier versions have only `Http.Send`.
-- **`Http.CreateDefaultClient()` defaults.** In 7.0.0 the client uses HTTP/2 when the server supports it, spreads new connections over all IP addresses of the host, and recycles pooled connections after 3 minutes. Earlier versions use only HTTP/1.1, send all connections to the first IP address, recycle connections after 10 minutes, and accept only the `maxConnectionsPerServer` parameter (see check 2).
+- **`Http.CreateDefaultClient()` defaults.** In 7.0.0 the client uses HTTP/2 when the server supports it, spreads new connections over all IP addresses of the host, recycles pooled connections after 3 minutes, and closes idle connections after 1.5 minutes. Earlier versions use only HTTP/1.1, send all connections to the first IP address, recycle connections after 10 minutes, close idle connections after 5 minutes, and accept only the `maxConnectionsPerServer` parameter (see check 2).
 - **Compression.** Version 7.0.0 adds request body compression (`WithCompression`, and the `compression` parameter of `WithJsonBody`) and response decompression (the `automaticDecompression` parameter of `Http.CreateDefaultClient`). Earlier versions have neither (see check 9).
-- `WithJsonBody(data)` ignores `Http.GlobalJsonSerializerOptions` and keeps the C# property names (PascalCase, `{"UserId":1}`).
-- `Http.Send<T>` treats a 2xx response whose body isn't valid JSON as a success, with `Data = null`.
-- In C#, `Http.Send<T>(client, clientArgs, request)` returns `HttpResponse<object>` instead of `HttpResponse<T>`.
+- **Data transfer.** Version 7.0.0 counts the size of requests and responses as HTTP/1.1 sends them, and counts a compressed body at its compressed size. Earlier versions count differently, so the data transfer stats of the same test can change after the upgrade.
+- **JSON request bodies.** In 7.0.0, `WithJsonBody(data)` serializes with `Http.GlobalJsonSerializerOptions`, so property names are camelCase (`{"userId":1}`, see check 4). In earlier versions, `WithJsonBody(data)` ignores `Http.GlobalJsonSerializerOptions` and keeps the C# property names (PascalCase, `{"UserId":1}`).
+- **JSON responses.** In 7.0.0, `SendRequest<T>` reports a 2xx response whose body isn't valid JSON as failed, and doesn't deserialize the body of a non-2xx response (see check 5). In earlier versions, `Http.Send<T>` treats a 2xx response with invalid JSON as a success, with `Data = null`, and deserializes the body of a non-2xx response too.
+- **Response type.** In 7.0.0, `SendRequest<T>` returns `Response<HttpResponse<T>>`. In earlier versions, the C# method `Http.Send<T>(client, clientArgs, request)` returns `HttpResponse<object>` instead of `HttpResponse<T>`.
 
 When you write a flow, reference NBomber.Http 7.0.0 or a later version. When you validate one, check the version first: if the `.csproj` or the `#:package` directive references a version older than 7.0.0, report it and propose upgrading to 7.0.0 or later. Upgrading changes the client defaults above, so tell the user that the results can differ from earlier runs.
+
+If the user must compare the new results with runs of an earlier version, propose these settings. They bring back the earlier behavior:
+
+| Earlier behavior | Setting in 7.0.0 |
+|---|---|
+| HTTP/1.1 only | `Http.CreateDefaultClient(httpVersion: "1.1")` |
+| Connections recycled after 10 minutes | `pooledConnectionLifetime: TimeSpan.FromMinutes(10)` |
+| All connections to the first IP address | `dnsSelection: DnsSelection.Default` |
+| PascalCase names in JSON request bodies | `.WithJsonBody(data, new JsonSerializerOptions())` |
+
+The idle timeout and the data transfer counting have no setting. The idle timeout matters only when connections stay idle for more than 1.5 minutes, for example in a test with a very low request rate.
+
+The JSON names can also break requests, not only change results. If the API matches property names case-sensitively and expects PascalCase, the camelCase body from 7.0.0 loses its values. In that case PascalCase is a requirement. Set it once for the whole test, and keep the other web defaults, so that `SendRequest<T>` still reads camelCase responses (see checks 4 and 5):
+
+```csharp
+Http.GlobalJsonSerializerOptions = new JsonSerializerOptions(JsonSerializerOptions.Web)
+{
+    PropertyNamingPolicy = null   // keep the C# property names
+};
+```
 
 ## Checks
 
@@ -103,6 +124,16 @@ The `DnsSelection` enum is in the `NBomber.Http` namespace. `DecompressionMethod
 
 **HTTP version.** By default the client uses HTTP/2 for `https` URLs when the server supports it, and HTTP/1.1 for `http` URLs and for servers without HTTP/2. HTTP/2 sends many requests in parallel over one connection, and the client opens more connections when the server's stream limit is reached. If the real clients of the API use HTTP/1.1, pass `httpVersion: "1.1"`. A request with its own version from `.WithVersion("1.1")` keeps that version.
 
+**HTTP/2 without TLS (h2c).** An `http` URL has no TLS, so the client can't negotiate the version with the server. With the default `versionPolicy`, the client then uses HTTP/1.1 and reports no error. Some services accept HTTP/2 over plain `http`, for example a gRPC service or an internal service behind a proxy. To test such a service with HTTP/2, pass the exact version:
+
+```csharp
+var httpClient = Http.CreateDefaultClient(
+    httpVersion: "2.0",
+    versionPolicy: HttpVersionPolicy.RequestVersionExact);
+```
+
+With `RequestVersionExact`, a request fails if the server doesn't support that version. A wrong setting then shows up as failed requests, not as a test that silently uses HTTP/1.1. If a test of an `http` URL is meant to use HTTP/2 (for example the code, its comments or the scenario name say so), and the client doesn't use `RequestVersionExact`, report it: the test runs over HTTP/1.1. For HTTP/3, pass `httpVersion: "3.0"`. HTTP/3 needs QUIC support in the operating system and on the server.
+
 **Compressed responses.** The client doesn't decompress response bodies by default, and doesn't send `Accept-Encoding`. If the API sends compressed responses and the test reads the body (for example with `SendRequest<T>`, see check 5), pass `automaticDecompression: DecompressionMethods.GZip | DecompressionMethods.Brotli`. The client then decompresses the body itself, and the reported size still counts the compressed bytes that came over the network. `Deflate` isn't supported and is ignored. Check 9 has the compression rules.
 
 Any other way of creating the client fails the check, for example `new HttpClient()` or `new HttpClient(new SocketsHttpHandler { ... })`. Propose replacing it with `Http.CreateDefaultClient()`, and map the custom settings to its parameters:
@@ -112,9 +143,11 @@ Any other way of creating the client fails the check, for example `new HttpClien
 | `MaxConnectionsPerServer = N` | `maxConnectionsPerServer: N` |
 | `PooledConnectionLifetime = t` | `pooledConnectionLifetime: t` |
 | `httpClient.Timeout = t` | `requestTimeout: t` |
-| `DefaultRequestVersion = HttpVersion.Version11` | `httpVersion: "1.1"` |
-| `DefaultVersionPolicy = p` | `versionPolicy: p` |
+| `DefaultRequestVersion = v` | `httpVersion: "1.1"` or `"2.0"`. Read the note below the table. |
+| `DefaultVersionPolicy = p` | `versionPolicy: p`. Read the note below the table. |
 | `AutomaticDecompression = m` | `automaticDecompression: m`. With the .NET setting, the reported size is the decompressed size, not the bytes received. |
+
+**`DefaultRequestVersion` on a custom client has no effect.** NBomber sends each request with `SendAsync(HttpRequestMessage)`. That method uses the version of the request, not the `DefaultRequestVersion` and `DefaultVersionPolicy` of the client. A request from `Http.CreateRequest` has version 1.1. So a custom client with `DefaultRequestVersion = HttpVersion.Version20` actually sends HTTP/1.1, unless the code sets the version on each request (`.WithVersion(...)` or `request.Version`). `Http.CreateDefaultClient()` sets the version on every request. After the change the test really uses HTTP/2 (for `https` URLs, when the server supports it), so the results can differ from earlier runs. Tell the user. To keep the HTTP/1.1 behavior, propose `httpVersion: "1.1"`.
 
 If the custom handler has a setting that has no parameter (for example a client certificate or a proxy), keep the custom handler and report it as a suggestion only. Name the defaults from the first table that it doesn't have.
 
@@ -236,6 +269,10 @@ var scenario = Scenario.Create("http_scenario", async context =>
 
 `HttpClient` is safe for concurrent requests, so all copies of the scenario can use the same instance. Its handler keeps a pool of open connections, and the requests reuse them.
 
+**Good practice: one shared client for each scenario.** All copies of the scenario use the same client. The only exception is a session that lives in cookies. One client keeps one set of cookies, so each copy then needs its own client (see check 7). A token in a header doesn't need its own client: each copy sends its token with each request on the shared client (see check 7).
+
+Several scenarios can share one client, but a separate client for each scenario is better. Each client has its own connection pool and its own cookies. So the connections, the `maxConnectionsPerServer` limit and the cookies of one scenario don't affect the other scenarios.
+
 A client that is created inside the scenario lambda fails the check, because the lambda runs on every iteration:
 
 ```csharp
@@ -258,9 +295,9 @@ The same applies to a client created inside a `Step.Run` lambda, or in a helper 
 
 Don't report these cases:
 
-- **A dedicated client for each copy of the scenario,** created once and stored in `context.ScenarioInstanceData` (see check 7). Only report it when the code creates a new client on every iteration instead of reading the stored one.
+- **A dedicated client for each copy of the scenario,** created once and stored in `context.ScenarioInstanceData` (see check 7). Only fail the check when the code creates a new client on every iteration instead of reading the stored one. If the scenario doesn't keep a session in cookies, report the dedicated clients as a suggestion and propose one shared client. Each copy then opens its own connections, so the test opens many more connections and does many more TLS handshakes than it needs.
 - **A client created in `WithInit`** and kept in a variable or field outside the scenario lambda.
-- **One client shared by several scenarios.**
+- **One client shared by several scenarios.** It works, so it doesn't fail the check. Mention the separate client for each scenario only if the scenarios need different settings or cookies.
 
 ### 7. Each virtual user has its own session
 
