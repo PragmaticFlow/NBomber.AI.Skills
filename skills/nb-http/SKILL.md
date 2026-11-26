@@ -396,7 +396,40 @@ The response is the same as before: `SendRequest` returns `Response<HttpResponse
 
 NBomber.Http can compress request bodies and decompress response bodies. Use its helpers. Don't compress or decompress in the test code.
 
-Use compression only when the real clients of the API use it. Compression changes the work on the server (CPU time to compress and decompress) and the number of bytes on the network. A test that compresses differently from the real clients measures a different load.
+**No compression by default.** By default, a test uses no compression:
+
+- `Http.CreateDefaultClient()` doesn't send `Accept-Encoding`. So the API sends each response uncompressed, even if it can compress it.
+- Each request body goes out uncompressed.
+
+Real clients often use compression. Browsers always send `Accept-Encoding` (for example `gzip, deflate, br, zstd`). Most mobile apps and HTTP client libraries also send it. Many APIs, web servers, reverse proxies and CDNs compress a response when the client accepts it. Some clients also compress large request bodies, for example file uploads or batches of events.
+
+Compression changes the load that the test makes:
+
+- **Server CPU.** The server uses CPU time to compress each response, and to decompress each compressed request body. At a high request rate, this can be a large part of the server's CPU load.
+- **Network.** A compressed JSON or text body is often 70–90% smaller. Fewer bytes go over the network, so the test reaches the bandwidth limits later, and a large body arrives sooner.
+- **Load generator CPU.** The load generator also uses CPU time to decompress responses and to compress request bodies.
+
+A test that compresses differently from the real clients measures a different load. For example, if the real clients accept compressed responses and the test doesn't, the server uses less CPU than in production, and the network carries more bytes. The test can then show a capacity that the server doesn't have in production, or a network limit that real users never reach.
+
+So the compression in a test must be a decision, not a default that nobody chose. Find out what the real clients do, and use the same settings:
+
+| Real clients | Setting |
+|---|---|
+| Accept compressed responses (browsers, most mobile apps and SDKs) | `Http.CreateDefaultClient(automaticDecompression: DecompressionMethods.GZip \| DecompressionMethods.Brotli)` |
+| Send compressed request bodies | `.WithJsonBody(data, compression: ...)` or `.WithCompression(...)` |
+| Use no compression (for example, some internal service-to-service calls) | The defaults |
+
+To find out if the API compresses its responses, send one request with `Accept-Encoding`, and look at the `Content-Encoding` header of the response:
+
+```bash
+curl -s -o /dev/null -D - -H "Accept-Encoding: gzip, br" https://nbomber.com/api/users
+```
+
+If the response has `Content-Encoding: gzip` or `Content-Encoding: br`, the API compresses responses for the clients that accept them.
+
+**When you write a flow**, ask the user which compression the real clients use, unless the user's request or the code already makes it clear. Don't keep the defaults silently. If the user doesn't know, and browsers or mobile apps call the API, propose `automaticDecompression`. Tell the user that this choice changes the results.
+
+**When you validate a flow**, a test without compression doesn't fail this check, because no compression can be the correct choice. But always report which compression the test uses, for request bodies and for responses, and ask the user if it is the same as in the real clients. If the test simulates browser or mobile traffic, and the client has no `automaticDecompression`, propose it as a suggestion. Real clients send `Accept-Encoding`, so the API does compression work in production that the test doesn't cause.
 
 **Request compression.** To send a compressed body, pass `compression` to `WithJsonBody`, or call `WithCompression` after any other body:
 
@@ -434,5 +467,3 @@ These cases fail the check:
 
 - **Decompressing by hand.** The test reads the body through a `GZipStream` or a `BrotliStream`, for example over `response.Content.ReadAsStreamAsync()`. Propose `automaticDecompression`, and `SendRequest<T>` for a JSON body.
 - **`Accept-Encoding` without `automaticDecompression`.** The test sends `.WithHeader("Accept-Encoding", "gzip")`, and the client doesn't have `automaticDecompression`. The API sends compressed bodies that the client doesn't decompress, so `SendRequest<T>` fails every request with a deserialization error. Propose `automaticDecompression`, and remove the header: the client sends it itself.
-
-If the test simulates browser traffic, and the API compresses its responses, a client without `automaticDecompression` is a suggestion only. Browsers always send `Accept-Encoding`. Without it, the API skips the compression work, and the test receives more bytes than real users do.
