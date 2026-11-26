@@ -1,6 +1,6 @@
 ---
 name: nb-core
-description: Helps write and validate the basic setup of NBomber load tests in C#, in a .csproj project or a C# file-based app (dotnet run app.cs), for any protocol. It checks the garbage collection settings, the warm-up, and how the scenario handles failed steps. Use it whenever the user writes a new NBomber test, or asks to review, validate, check or fix an existing one, even if they don't name these settings. For HTTP tests, use it together with nb-http.
+description: Helps write and validate the basic setup of NBomber load tests in C#, in a .csproj project or a C# file-based app (dotnet run app.cs), for any protocol. It checks the garbage collection settings, the warm-up, how the scenario handles failed steps, and how it checks if a response has a payload. Use it whenever the user writes a new NBomber test, or asks to review, validate, check or fix an existing one, even if they don't name these settings. For HTTP tests, use it together with nb-http.
 license: MIT
 metadata:
   author: NBomber
@@ -133,3 +133,37 @@ Don't report these cases:
 - **The scenario calls `.WithRestartIterationOnFail(shouldRestart: false)`.** The code after a failed step still runs, so the checks are needed. This setting exists only in code, not in the JSON config.
 - **A check inside a step's lambda that protects later lines in the same lambda.** For example, `if (response.IsError) return response;` after a client call, before the code reads the response data. The step hasn't ended yet at that point. Only report it when nothing in the lambda follows it except `return response;`.
 - **A check on a client call result in a scenario without steps** (for example `httpClient.SendRequest` called directly in the scenario lambda). Without `Step.Run` nothing restarts the iteration, so the code after the call runs either way.
+
+### 4. Payload is checked with IsSome(), IsNone() or ?.Value
+
+`Response<T>.Payload` is an F# option (`FSharpOption<T>`), not a nullable value. A response can have no payload, for example `Response.Ok()` or `Response.Fail()` without a `payload` argument, or a client call that failed before it got a response. To check if the payload exists, use the extension methods from `NBomber.CSharp`:
+
+```csharp
+if (response.Payload.IsSome())
+{
+    var data = response.Payload.Value;
+}
+
+if (response.Payload.IsNone())
+    return Response.Fail<string>(message: "no payload");
+```
+
+`response.Payload?.Value` is also correct. It gives the value, or `null` when there is no payload, in one expression:
+
+```csharp
+var token = response.Payload?.Value?.Data?.Token;
+if (string.IsNullOrEmpty(token))
+    return Response.Fail<HttpResponse<LoginResult>>(message: "response has no token");
+```
+
+Any other check of the payload for null fails the check. Propose `IsSome()`, `IsNone()` or `Payload?.Value` instead. Examples:
+
+| Code | Propose |
+|---|---|
+| `response.Payload != null`, `response.Payload is not null` | `response.Payload.IsSome()` |
+| `response.Payload == null`, `response.Payload is null` | `response.Payload.IsNone()` |
+| `FSharpOption<T>.get_IsSome(response.Payload)`, `OptionModule.IsSome(response.Payload)` | `response.Payload.IsSome()` |
+
+An empty option is `null` at run time, so a null check gives the correct result. But the code looks like a check on a nullable value, and it hides that `Payload` is an option. `IsSome()`, `IsNone()` and `Payload?.Value` show the intent: they check the option, then read its value.
+
+Don't report a null check on the value inside the payload, for example `response.Payload.Value.Data?.Id` or `response.Payload.Value.Data is null`. That value is a normal .NET object and can be `null` (see nb-http check 3).
