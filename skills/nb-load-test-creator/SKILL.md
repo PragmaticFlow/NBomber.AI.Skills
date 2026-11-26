@@ -5,7 +5,7 @@ license: MIT
 compatibility: Requires Claude Code with shell access, the .NET SDK (dotnet CLI), and network access to nuget.org, the OpenAPI spec URL and the API under test. Docker is only needed if the tested API depends on containers.
 metadata:
   author: NBomber
-  version: 1.1.0
+  version: "0.1.0-beta.0"
   category: testing
   tags: [load-testing, performance-testing, nbomber, openapi, swagger, csharp, dotnet]
 ---
